@@ -53,7 +53,7 @@ private:
 /**
  * @brief 页帧
  * @ingroup BufferPool
- * @details 页帧是磁盘文件在内存中的表示。磁盘文件按照页面来操作，操作之前先映射到内存中，
+ * @details 页帧是磁盘文件在 内存 中的表示。磁盘文件按照页面来操作，操作之前先映射到内存中，
  * 将磁盘数据读取到内存中，也就是页帧。
  *
  * 当某个页面被淘汰时，如果有些内容曾经变更过，那么就需要将这些内容刷新到磁盘上。这里有
@@ -73,7 +73,7 @@ public:
   /**
    * @brief reinit 和 reset 在 MemPoolSimple 中使用
    * @details 在 MemPoolSimple 分配和释放一个Frame对象时，不会调用构造函数和析构函数，
-   * 而是调用reinit和reset。
+   * 而是调用reinit和reset。（帧永久存在，只会被刷新）
    */
   void reinit() {}
   void reset() {}
@@ -101,7 +101,7 @@ public:
   /**
    * @brief 为了实现持久化，需要将页面的修改记录记录到日志中，这里记录了日志序列号
    * @details 如果当前页面从磁盘中加载出来时，它的日志序列号比当前WAL(Write-Ahead-Logging)中的一些
-   * 序列号要小，那就可以从日志中读取这些更大序列号的日志，做重做操作，将页面恢复到最新状态，也就是redo。
+   * 序列号要小，那就可以从日志中读取这些更大序列号的日志，做 重做操作 ，将页面恢复到最新状态，也就是redo。
    */
   LSN  lsn() const { return page_.lsn; }
   void set_lsn(LSN lsn) { page_.lsn = lsn; }
@@ -116,8 +116,8 @@ public:
   /**
    * @brief 刷新当前内存页面的访问时间
    * @details 由于内存是有限的，比磁盘要小很多。那当我们访问某些文件页面时，可能由于内存不足
-   * 而要淘汰一些页面。我们选择淘汰哪些页面呢？这里使用了LRU算法，即最近最少使用的页面被淘汰。
-   * 最近最少使用，采用的依据就是访问时间。所以每次访问某个页面时，我们都要刷新一下访问时间。
+   * 而要淘汰一些页面。我们选择淘汰哪些页面呢？这里使用了  LRU算法  ，即最近最少使用的页面被淘汰。
+   * 最近最少使用，采用的依据就是  访问时间  。所以每次访问某个页面时，我们都要刷新一下访问时间。
    */
   void access();
 
@@ -172,7 +172,7 @@ private:
   friend class BufferPool;
 
   bool          dirty_ = false;
-  atomic<int>   pin_count_{0};
+  atomic<int>   pin_count_{0};    // 原子操作，记录当前 帧 被多少线程使用
   unsigned long acc_time_ = 0;
   FrameId       frame_id_;
   Page          page_;

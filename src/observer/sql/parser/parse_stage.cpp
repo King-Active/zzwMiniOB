@@ -31,12 +31,12 @@ RC ParseStage::handle_request(SQLStageEvent *sql_event)
 {
   RC rc = RC::SUCCESS;
 
-  SqlResult         *sql_result = sql_event->session_event()->sql_result();
-  const std::string &sql        = sql_event->sql();
+  SqlResult         *sql_result = sql_event->session_event()->sql_result(); // 指向查询结果存放除，若此阶段失败，直接返回空
+  const std::string &sql        = sql_event->sql();   // sql语句
 
-  ParsedSqlResult parsed_sql_result;
+  ParsedSqlResult parsed_sql_result;  // 语法解析后的结果
 
-  parse(sql.c_str(), &parsed_sql_result);
+  parse(sql.c_str(), &parsed_sql_result);   // 解析，并将结果放在parsed_sql_result
   if (parsed_sql_result.sql_nodes().empty()) {
     sql_result->set_return_code(RC::SUCCESS);
     sql_result->set_state_string("");
@@ -56,7 +56,7 @@ RC ParseStage::handle_request(SQLStageEvent *sql_event)
     return rc;
   }
 
-  sql_event->set_sql_node(std::move(sql_node));
+  sql_event->set_sql_node(std::move(sql_node)); // 继续传递下去
 
   return RC::SUCCESS;
 }

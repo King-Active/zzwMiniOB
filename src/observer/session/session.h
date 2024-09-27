@@ -32,7 +32,7 @@ public:
    * @brief 获取默认的会话数据，新生成的会话都基于默认会话设置参数
    * @note 当前并没有会话参数
    */
-  static Session &default_session();
+  static Session& default_session();
 
 public:
   Session() = default;

@@ -28,7 +28,7 @@ using namespace common;
 static const int MEM_POOL_ITEM_NUM = 20;
 
 ////////////////////////////////////////////////////////////////////////////////
-
+// 输出文件头信息：总共多少页，其中已经占了多少页
 string BPFileHeader::to_string() const
 {
   stringstream ss;
@@ -42,6 +42,7 @@ BPFrameManager::BPFrameManager(const char *name) : allocator_(name) {}
 
 RC BPFrameManager::init(int pool_num)
 {
+  // 初始化内存为 pool_num 个内存池，每个内存池默认 128 个帧
   int ret = allocator_.init(false, pool_num);
   if (ret == 0) {
     return RC::SUCCESS;
@@ -59,11 +60,14 @@ RC BPFrameManager::cleanup()
   return RC::SUCCESS;
 }
 
+// 释放帧，释放前写回磁盘，触发回调函数 purger
 int BPFrameManager::purge_frames(int count, function<RC(Frame *frame)> purger)
 {
   lock_guard<mutex> lock_guard(lock_);
 
   vector<Frame *> frames_can_purge;
+
+  // 想要释放多少个帧（页面）
   if (count <= 0) {
     count = 1;
   }
@@ -71,15 +75,18 @@ int BPFrameManager::purge_frames(int count, function<RC(Frame *frame)> purger)
 
   auto purge_finder = [&frames_can_purge, count](const FrameId &frame_id, Frame *const frame) {
     if (frame->can_purge()) {
+      // 给当前页帧增加引用计数，防止重复删除
       frame->pin();
       frames_can_purge.push_back(frame);
       if (frames_can_purge.size() >= static_cast<size_t>(count)) {
-        return false;  // false to break the progress
+        return false;  // 结束查找可释放帧
       }
     }
-    return true;  // true continue to look up
+    return true;  // 继续查找可释放帧
   };
 
+  // 它接受一个 lambda 函数作为参数，并反向遍历 frames_ 中的每个元素，对每个元素调用传入的 lambda 函数。
+  // 方向：最近最少
   frames_.foreach_reverse(purge_finder);
   LOG_INFO("purge frames find %ld pages total", frames_can_purge.size());
 
@@ -103,9 +110,10 @@ int BPFrameManager::purge_frames(int count, function<RC(Frame *frame)> purger)
 
 Frame *BPFrameManager::get(int buffer_pool_id, PageNum page_num)
 {
-  FrameId                     frame_id(buffer_pool_id, page_num);
+  // 哪一文件的哪一页 -> 帧
+  FrameId frame_id(buffer_pool_id, page_num);
 
-  lock_guard<mutex> lock_guard(lock_);
+  lock_guard<mutex> lock_guard(lock_);    // 作用域结束自动释放
   return get_internal(frame_id);
 }
 
@@ -114,24 +122,31 @@ Frame *BPFrameManager::get_internal(const FrameId &frame_id)
   Frame *frame = nullptr;
   (void)frames_.get(frame_id, frame);
   if (frame != nullptr) {
+    // 增加引用数
     frame->pin();
   }
   return frame;
 }
 
+// 分配新的帧
 Frame *BPFrameManager::alloc(int buffer_pool_id, PageNum page_num)
 {
+  // 创建帧（Id）
   FrameId frame_id(buffer_pool_id, page_num);
 
   lock_guard<mutex> lock_guard(lock_);
 
-  Frame                      *frame = get_internal(frame_id);
+  Frame *frame = get_internal(frame_id);
   if (frame != nullptr) {
+    // 已分配，无需再分配
     return frame;
   }
 
+  // 执行分配，如果内存空间不足，可能需要extend()
   frame = allocator_.alloc();
+
   if (frame != nullptr) {
+    // 
     ASSERT(frame->pin_count() == 0, "got an invalid frame that pin count is not 0. frame=%s", 
            frame->to_string().c_str());
     frame->set_buffer_pool_id(buffer_pool_id);
@@ -153,7 +168,11 @@ RC BPFrameManager::free(int buffer_pool_id, PageNum page_num, Frame *frame)
 RC BPFrameManager::free_internal(const FrameId &frame_id, Frame *frame)
 {
   Frame                *frame_source = nullptr;
+
+  // 查找 frame_id 对应的 frame，查找结果放在 frame_source 中
   [[maybe_unused]] bool found        = frames_.get(frame_id, frame_source);
+
+  // pin_count = 1表示初始值
   ASSERT(found && frame == frame_source && frame->pin_count() == 1,
       "failed to free frame. found=%d, frameId=%s, frame_source=%p, frame=%p, pinCount=%d, lbt=%s",
       found, frame_id.to_string().c_str(), frame_source, frame, frame->pin_count(), lbt());
@@ -165,12 +184,14 @@ RC BPFrameManager::free_internal(const FrameId &frame_id, Frame *frame)
   return RC::SUCCESS;
 }
 
+// 列出所有指定文件的页面
 list<Frame *> BPFrameManager::find_list(int buffer_pool_id)
 {
   lock_guard<mutex> lock_guard(lock_);
 
   list<Frame *> frames;
-  auto               fetcher = [&frames, buffer_pool_id](const FrameId &frame_id, Frame *const frame) -> bool {
+  auto fetcher = [&frames, buffer_pool_id](const FrameId &frame_id, Frame *const frame) -> bool {
+    
     if (buffer_pool_id == frame_id.buffer_pool_id()) {
       frame->pin();
       frames.push_back(frame);
@@ -182,6 +203,9 @@ list<Frame *> BPFrameManager::find_list(int buffer_pool_id)
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+
+// 用于遍历BufferPool中的所有页面
+
 BufferPoolIterator::BufferPoolIterator() {}
 BufferPoolIterator::~BufferPoolIterator() {}
 RC BufferPoolIterator::init(DiskBufferPool &bp, PageNum start_page /* = 0 */)
@@ -224,9 +248,13 @@ DiskBufferPool::~DiskBufferPool()
   LOG_INFO("disk buffer pool exit");
 }
 
+// 读取和分配 file_name 对应的文件头
+// file_name 如 "miniob/db/sys/Account.data"，能够唯一定位一个文件
 RC DiskBufferPool::open_file(const char *file_name)
 {
+  // 使用open函数以读写模式（O_RDWR）打开指定的文件（file_name）
   int fd = open(file_name, O_RDWR);
+
   if (fd < 0) {
     LOG_ERROR("Failed to open file %s, because %s.", file_name, strerror(errno));
     return RC::IOERR_ACCESS;
@@ -237,6 +265,8 @@ RC DiskBufferPool::open_file(const char *file_name)
   file_desc_ = fd;
 
   Page header_page;
+  
+  // 从 file_desc_ 对应的文件中，读取指定长度(sizeof(header_page)) 到 header_page
   int ret = readn(file_desc_, &header_page, sizeof(header_page));
   if (ret != 0) {
     LOG_ERROR("Failed to read first page of %s, due to %s.", file_name, strerror(errno));
@@ -245,9 +275,12 @@ RC DiskBufferPool::open_file(const char *file_name)
     return RC::IOERR_READ;
   }
 
+//  解析文件头 强制转换 文件头域内容
   BPFileHeader *tmp_file_header = reinterpret_cast<BPFileHeader *>(header_page.data);
   buffer_pool_id_ = tmp_file_header->buffer_pool_id;
 
+// BP_HEADER_PAGE = 0，即文件头页号为0
+// 为文件头分配帧到 hdr_frame_ 中
   RC rc = allocate_frame(BP_HEADER_PAGE, &hdr_frame_);
   if (rc != RC::SUCCESS) {
     LOG_ERROR("failed to allocate frame for header. file name %s", file_name_.c_str());
@@ -257,8 +290,11 @@ RC DiskBufferPool::open_file(const char *file_name)
   }
 
   hdr_frame_->set_buffer_pool_id(id());
+
+  // 刷新页面访问时间
   hdr_frame_->access();
 
+  // 加载指定页面（file_desc_）到内存中（hdr_frame_）中
   if ((rc = load_page(BP_HEADER_PAGE, hdr_frame_)) != RC::SUCCESS) {
     LOG_ERROR("Failed to load first page of %s, due to %s.", file_name, strerror(errno));
     purge_frame(BP_HEADER_PAGE, hdr_frame_);
@@ -277,6 +313,8 @@ RC DiskBufferPool::open_file(const char *file_name)
 RC DiskBufferPool::close_file()
 {
   RC rc = RC::SUCCESS;
+
+  // file_desc_ 对应当前bufferpool的文件
   if (file_desc_ < 0) {
     return rc;
   }
@@ -290,12 +328,14 @@ RC DiskBufferPool::close_file()
     return rc;
   }
 
+  // 清空所有与指定buffer pool关联的页面
   rc = dblwr_manager_.clear_pages(this);
   if (OB_FAIL(rc)) {
     LOG_WARN("failed to clear pages in double write buffer. filename=%s, rc=%s", file_name_.c_str(), strrc(rc));
     return rc;
   }
 
+  // 已经释放的页面
   disposed_pages_.clear();
 
   if (close(file_desc_) < 0) {
@@ -309,6 +349,9 @@ RC DiskBufferPool::close_file()
   return RC::SUCCESS;
 }
 
+// 根据文件ID和页号 从磁盘 获取指定页面到缓冲区，返回页面句柄指针。
+// 注意：申请bufferpool时，仅涉及文件头，不涉及具体页面
+// 通过此处动态请求页面，请求所得在 *frame 中
 RC DiskBufferPool::get_this_page(PageNum page_num, Frame **frame)
 {
   RC rc  = RC::SUCCESS;
@@ -353,16 +396,20 @@ RC DiskBufferPool::allocate_page(Frame **frame)
   lock_.lock();
 
   int byte = 0, bit = 0;
+
+  // 还有未分配的页面
   if ((file_header_->allocated_pages) < (file_header_->page_count)) {
-    // There is one free page
     for (int i = 0; i < file_header_->page_count; i++) {
       byte = i / 8;
       bit  = i % 8;
+      // 未分配
       if (((file_header_->bitmap[byte]) & (1 << bit)) == 0) {
         (file_header_->allocated_pages)++;
         file_header_->bitmap[byte] |= (1 << bit);
         // TODO,  do we need clean the loaded page's data?
-        hdr_frame_->mark_dirty();
+        // 在bufferpool中分配页面，相当于在磁盘中分配空闲页面
+        // 因此导致状态不一致，标记脏
+        hdr_frame_->mark_dirty();   
         LSN lsn = 0;
         rc = log_handler_.allocate_page(i, lsn);
         if (OB_FAIL(rc)) {
@@ -373,11 +420,12 @@ RC DiskBufferPool::allocate_page(Frame **frame)
         hdr_frame_->set_lsn(lsn);
 
         lock_.unlock();
-        return get_this_page(i, frame);
+        return get_this_page(i, frame);  // 返回新分配的页面给调用者
       }
     }
   }
 
+  //当前文件容量不足，直接放回
   if (file_header_->page_count >= BPFileHeader::MAX_PAGE_NUM) {
     LOG_WARN("file buffer pool is full. page count %d, max page count %d",
         file_header_->page_count, BPFileHeader::MAX_PAGE_NUM);
@@ -385,6 +433,7 @@ RC DiskBufferPool::allocate_page(Frame **frame)
     return RC::BUFFERPOOL_NOBUF;
   }
 
+  // 在容量充足下，申请新页面，由于之前已申请的页面都被占据，因此新页面下标为 file_header_->page_count
   LSN lsn = 0;
   rc = log_handler_.allocate_page(file_header_->page_count, lsn);
   if (OB_FAIL(rc)) {
@@ -395,6 +444,7 @@ RC DiskBufferPool::allocate_page(Frame **frame)
 
   PageNum page_num        = file_header_->page_count;
   Frame  *allocated_frame = nullptr;
+  // 缓存帧
   if ((rc = allocate_frame(page_num, &allocated_frame)) != RC::SUCCESS) {
     LOG_ERROR("Failed to allocate frame %s, due to no free page.", file_name_.c_str());
     lock_.unlock();
@@ -430,6 +480,7 @@ RC DiskBufferPool::allocate_page(Frame **frame)
   return RC::SUCCESS;
 }
 
+// 释放页面（释放内存的帧 + 释放磁盘文件的页面）
 RC DiskBufferPool::dispose_page(PageNum page_num)
 {
   if (page_num == 0) {
@@ -538,6 +589,7 @@ RC DiskBufferPool::flush_page(Frame &frame)
   return flush_page_internal(frame);
 }
 
+// 如果页面是脏的，就将数据（从内存的帧 frame）刷新到磁盘
 RC DiskBufferPool::flush_page_internal(Frame &frame)
 {
   // The better way is use mmap the block into memory,
@@ -549,8 +601,12 @@ RC DiskBufferPool::flush_page_internal(Frame &frame)
     // ignore error handle
   }
 
+  // 校验
   frame.set_check_sum(crc32(frame.page().data, BP_PAGE_DATA_SIZE));
 
+  // this对应某个文件
+  // frame.page_num()对应文件的页面
+  // frame.page() 为待写回的文件内容
   rc = dblwr_manager_.add_page(this, frame.page_num(), frame.page());
   if (OB_FAIL(rc)) {
     return rc;
@@ -576,6 +632,7 @@ RC DiskBufferPool::flush_all_pages()
   return RC::SUCCESS;
 }
 
+// 将页面标记为已分配
 RC DiskBufferPool::recover_page(PageNum page_num)
 {
   int byte = 0, bit = 0;
@@ -601,6 +658,8 @@ RC DiskBufferPool::write_page(PageNum page_num, Page &page)
     return RC::IOERR_SEEK;
   }
 
+  // 一次性写入数据 
+  // 哪个文件 写入的数据页 大小
   if (writen(file_desc_, &page, sizeof(Page)) != 0) {
     LOG_ERROR("Failed to write page %lld of %d due to %s.", offset, file_desc_, strerror(errno));
     return RC::IOERR_WRITE;
@@ -612,6 +671,7 @@ RC DiskBufferPool::write_page(PageNum page_num, Page &page)
 
 RC DiskBufferPool::redo_allocate_page(LSN lsn, PageNum page_num)
 {
+  // 最近已修改的大于等于指定的点，说明无需重做
   if (hdr_frame_->lsn() >= lsn) {
     return RC::SUCCESS;
   }
@@ -683,15 +743,19 @@ RC DiskBufferPool::redo_deallocate_page(LSN lsn, PageNum page_num)
 
 RC DiskBufferPool::allocate_frame(PageNum page_num, Frame **buffer)
 {
+  // this -> 当前文件
+  // 遍历内存的每一帧
   auto purger = [this](Frame *frame) {
     if (!frame->dirty()) {
       return RC::SUCCESS;
     }
 
+    // 页面是脏的
     RC rc = RC::SUCCESS;
     if (frame->buffer_pool_id() == id()) {
       rc = this->flush_page_internal(*frame);
     } else {
+      // 如果不属于本缓冲池，则只能调用统一的 bp_manager_
       rc = bp_manager_.flush_page(*frame);
     }
 
@@ -709,9 +773,11 @@ RC DiskBufferPool::allocate_frame(PageNum page_num, Frame **buffer)
       return RC::SUCCESS;
     }
 
+    //内存空闲空间不足
     LOG_TRACE("frames are all allocated, so we should purge some frames to get one free frame");
     (void)frame_manager_.purge_frames(1 /*count*/, purger);
   }
+
   return RC::BUFFERPOOL_NOBUF;
 }
 
@@ -728,6 +794,7 @@ RC DiskBufferPool::check_page_num(PageNum page_num)
   return RC::SUCCESS;
 }
 
+// 加载指定页面的数据到内存中
 RC DiskBufferPool::load_page(PageNum page_num, Frame *frame)
 {
   Page &page = frame->page();
@@ -744,6 +811,7 @@ RC DiskBufferPool::load_page(PageNum page_num, Frame *frame)
     return RC::IOERR_SEEK;
   }
 
+  // 一次性读取指定长度的数据
   int ret = readn(file_desc_, &page, BP_PAGE_SIZE);
   if (ret != 0) {
     LOG_ERROR("Failed to load page %s, file_desc:%d, page num:%d, due to failed to read data:%s, ret=%d, page count=%d",
@@ -767,7 +835,9 @@ BufferPoolManager::BufferPoolManager(int memory_size /* = 0 */)
     memory_size = MEM_POOL_ITEM_NUM * DEFAULT_ITEM_NUM_PER_POOL * BP_PAGE_SIZE;
   }
   const int pool_num = max(memory_size / BP_PAGE_SIZE / DEFAULT_ITEM_NUM_PER_POOL, 1);
+  // 为内存分配 pool_num 个内存池大小空间
   frame_manager_.init(pool_num);
+
   LOG_INFO("buffer pool manager init with memory size %d, page num: %d, pool num: %d",
            memory_size, pool_num * DEFAULT_ITEM_NUM_PER_POOL, pool_num);
 }
@@ -788,6 +858,7 @@ RC BufferPoolManager::init(unique_ptr<DoubleWriteBuffer> dblwr_buffer)
   return RC::SUCCESS;
 }
 
+// 新建文件写回磁盘
 RC BufferPoolManager::create_file(const char *file_name)
 {
   int fd = open(file_name, O_RDWR | O_CREAT | O_EXCL, S_IREAD | S_IWRITE);
@@ -807,6 +878,7 @@ RC BufferPoolManager::create_file(const char *file_name)
     return RC::IOERR_ACCESS;
   }
 
+  // 创建文件头页面
   Page page;
   memset(&page, 0, BP_PAGE_SIZE);
 
@@ -816,13 +888,14 @@ RC BufferPoolManager::create_file(const char *file_name)
   file_header->buffer_pool_id  = next_buffer_pool_id_.fetch_add(1);
 
   char *bitmap = file_header->bitmap;
-  bitmap[0] |= 0x01;
+  bitmap[0] |= 0x01;  // 仅文件头有效，其余页面无效
   if (lseek(fd, 0, SEEK_SET) == -1) {
     LOG_ERROR("Failed to seek file %s to position 0, due to %s .", file_name, strerror(errno));
     close(fd);
     return RC::IOERR_SEEK;
   }
-
+  
+  // 文件头写回磁盘
   if (writen(fd, (char *)&page, BP_PAGE_SIZE) != 0) {
     LOG_ERROR("Failed to write header to file %s, due to %s.", file_name, strerror(errno));
     close(fd);
@@ -844,6 +917,7 @@ RC BufferPoolManager::open_file(LogHandler &log_handler, const char *_file_name,
     return RC::BUFFERPOOL_OPEN;
   }
 
+  // 一个文件代表一个 DiskBufferPool
   DiskBufferPool *bp = new DiskBufferPool(*this, frame_manager_, *dblwr_buffer_, log_handler);
   RC              rc = bp->open_file(_file_name);
   if (rc != RC::SUCCESS) {
@@ -852,17 +926,21 @@ RC BufferPoolManager::open_file(LogHandler &log_handler, const char *_file_name,
     return rc;
   }
 
+  // 系统启动时，会打开所有的表，这样就可以知道当前系统最大的ID（文件数）是多少了
   if (bp->id() >= next_buffer_pool_id_.load()) {
     next_buffer_pool_id_.store(bp->id() + 1);
   }
 
+  // 记录所有的文件（buffetpool）
   buffer_pools_.insert(pair<string, DiskBufferPool *>(file_name, bp));
+  // 记录所有的文件号
   id_to_buffer_pools_.insert(pair<int32_t, DiskBufferPool *>(bp->id(), bp));
   LOG_DEBUG("insert buffer pool into fd buffer pools. fd=%d, bp=%p, lbt=%s", bp->file_desc(), bp, lbt());
   _bp = bp;
   return RC::SUCCESS;
 }
 
+// 将此文件从bufferpool抹去（已确保文件不脏）
 RC BufferPoolManager::close_file(const char *_file_name)
 {
   string file_name(_file_name);
@@ -870,6 +948,7 @@ RC BufferPoolManager::close_file(const char *_file_name)
   lock_.lock();
 
   auto iter = buffer_pools_.find(file_name);
+  // 找不到该文件对应的bufferpool
   if (iter == buffer_pools_.end()) {
     LOG_TRACE("file has not opened: %s", _file_name);
     lock_.unlock();
@@ -897,6 +976,7 @@ RC BufferPoolManager::flush_page(Frame &frame)
     return RC::INTERNAL;
   }
 
+  // 查询此帧对应的bufferpool
   DiskBufferPool *bp = iter->second;
   return bp->flush_page(frame);
 }

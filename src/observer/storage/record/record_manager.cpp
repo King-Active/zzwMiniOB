@@ -709,12 +709,13 @@ RC RecordFileScanner::open_scan(Table *table, DiskBufferPool &buffer_pool, Trx *
 {
   close_scan();
 
-  table_            = table;
-  disk_buffer_pool_ = &buffer_pool;
-  trx_              = trx;
+  table_            = table;           // 表
+  disk_buffer_pool_ = &buffer_pool;    // 对应文件
+  trx_              = trx;             // 事务
   log_handler_      = &log_handler;
   rw_mode_          = mode;
 
+  // 从buffer pool文件的第一页（数据页开始扫描）
   RC rc = bp_iterator_.init(buffer_pool, 1);
   if (rc != RC::SUCCESS) {
     LOG_WARN("failed to init bp iterator. rc=%d:%s", rc, strrc(rc));
@@ -734,7 +735,7 @@ RC RecordFileScanner::open_scan(Table *table, DiskBufferPool &buffer_pool, Trx *
  * @brief 从当前位置开始找到下一条有效的记录
  *
  * 如果当前页面还有记录没有访问，就遍历当前的页面。
- * 当前页面遍历完了，就遍历下一个页面，然后找到有效的记录
+ * 当前页面遍历完了，就遍历**下一个页面**，然后找到有效的记录
  */
 RC RecordFileScanner::fetch_next_record()
 {
@@ -771,6 +772,7 @@ RC RecordFileScanner::fetch_next_record()
   }
 
   // 所有的页面都遍历完了，没有数据了
+  // next_record_ 获取的记录放在这里缓存起来
   next_record_.rid().slot_num = -1;
   record_page_handler_->cleanup();
   return RC::RECORD_EOF;

@@ -45,6 +45,7 @@ class BufferPoolLogHandler;
 
 /**
  * @brief BufferPool 的实现
+ *        一个BufferPool对应着一个物理文件
  * @defgroup BufferPool
  */
 
@@ -64,7 +65,7 @@ class BufferPoolLogHandler;
 struct BPFileHeader
 {
   int32_t buffer_pool_id;   //! buffer pool id
-  int32_t page_count;       //! 当前文件一共有多少个页面
+  int32_t page_count;       //! 当前文件一共有多少个页面；
   int32_t allocated_pages;  //! 已经分配了多少个页面
   char    bitmap[0];        //! 页面分配位图, 第0个页面(就是当前页面)，总是1
 
@@ -79,7 +80,7 @@ struct BPFileHeader
 /**
  * @brief 管理页面Frame
  * @ingroup BufferPool
- * @details 管理内存中的页帧。内存是有限的，内存中能够存放的页帧个数也是有限的。
+ * @details 管理 内存 中的 帧。内存是有限的，内存中能够存放的页帧个数也是有限的。
  * 当内存中的页帧不够用时，需要从内存中淘汰一些页帧，以便为新的页帧腾出空间。
  * 这个管理器负责为所有的BufferPool提供页帧管理服务，也就是所有的BufferPool磁盘文件
  * 在访问时都使用这个管理器映射到内存。
@@ -93,13 +94,13 @@ public:
   RC cleanup();
 
   /**
-   * @brief 获取指定的页面
+   * @brief 获取指定的页面(给定页面号，返回内存中帧的映射)
    *
-   * @param buffer_pool_id buffer Pool标识
-   * @param page_num  页面号
+   * @param buffer_pool_id buffer Pool标识(文件号)
+   * @param page_num  （页面号）
    * @return Frame* 页帧指针
    */
-  Frame *get(int buffer_pool_id, PageNum page_num);
+  Frame *get(int buffer_pool_id, PageNum page_num); // 文件号 -> 页面号
 
   /**
    * @brief 列出所有指定文件的页面
@@ -119,16 +120,18 @@ public:
   Frame *alloc(int buffer_pool_id, PageNum page_num);
 
   /**
+   * 淘汰帧
    * 尽管frame中已经包含了buffer_pool_id和page_num，但是依然要求
    * 传入，因为frame可能忘记初始化或者没有初始化
    */
   RC free(int buffer_pool_id, PageNum page_num, Frame *frame);
 
   /**
+   * 释放帧
    * 如果不能从空闲链表中分配新的页面，就使用这个接口，
    * 尝试从pin count=0的页面中淘汰一些
    * @param count 想要purge多少个页面
-   * @param purger 需要在释放frame之前，对页面做些什么操作。当前是刷新脏数据到磁盘
+   * @param purger 需要在释放frame之前，对页面做些什么操作。当前是刷新脏数据到磁盘（回调）
    * @return 返回本次清理了多少个页面
    */
   int purge_frames(int count, function<RC(Frame *frame)> purger);
@@ -152,11 +155,11 @@ private:
   };
 
   using FrameLruCache  = common::LruCache<FrameId, Frame *, BPFrameIdHasher>;
-  using FrameAllocator = common::MemPoolSimple<Frame>;
+  using FrameAllocator = common::MemPoolSimple<Frame>;  // 模板参数 Frame 保证内存池以 Frame 为单位分配
 
   mutex          lock_;
   FrameLruCache  frames_;
-  FrameAllocator allocator_;
+  FrameAllocator allocator_;  // 真正的内存分配器
 };
 
 /**
@@ -208,7 +211,7 @@ public:
   RC get_this_page(PageNum page_num, Frame **frame);
 
   /**
-   * @brief 在指定文件中分配一个新的页面，并将其放入缓冲区，返回页面句柄指针。
+   * @brief 在指定文件（当前bufferpool）中分配一个新的页面，并将其放入缓冲区，返回页面句柄指针。
    * @details 分配页面时，如果文件中有空闲页，就直接分配一个空闲页；
    * 如果文件中没有空闲页，则扩展文件规模来增加新的空闲页。
    */
@@ -348,8 +351,8 @@ private:
 
   unique_ptr<DoubleWriteBuffer> dblwr_buffer_;
 
-  common::Mutex                            lock_;
-  unordered_map<string, DiskBufferPool *>  buffer_pools_;
-  unordered_map<int32_t, DiskBufferPool *> id_to_buffer_pools_;
+  common::Mutex                            lock_;   // 所有bufferpool共享一个锁
+  unordered_map<string, DiskBufferPool *>  buffer_pools_; // 记录所有的文件（buffetpool）
+  unordered_map<int32_t, DiskBufferPool *> id_to_buffer_pools_; // 记录所有的文件号
   atomic<int32_t>                          next_buffer_pool_id_{1};  // 系统启动时，会打开所有的表，这样就可以知道当前系统最大的ID是多少了
 };

@@ -33,9 +33,9 @@ RC ExecuteStage::handle_request(SQLStageEvent *sql_event)
 {
   RC rc = RC::SUCCESS;
 
-  const unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();
-  if (physical_operator != nullptr) {
-    return handle_request_with_physical_operator(sql_event);
+  const unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();   //拿到物理算子的引用
+  if (physical_operator != nullptr) {   
+    return handle_request_with_physical_operator(sql_event);  // 物理算子放入  sql_result
   }
 
   SessionEvent *session_event = sql_event->session_event();
@@ -55,7 +55,7 @@ RC ExecuteStage::handle_request_with_physical_operator(SQLStageEvent *sql_event)
 {
   RC rc = RC::SUCCESS;
 
-  unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();
+  unique_ptr<PhysicalOperator> &physical_operator = sql_event->physical_operator();   // 拿到物理算子的引用
   ASSERT(physical_operator != nullptr, "physical operator should not be null");
 
   SqlResult *sql_result = sql_event->session_event()->sql_result();

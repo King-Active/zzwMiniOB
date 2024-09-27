@@ -40,9 +40,9 @@ public:
   {
     this->size = 0;
 
-    pthread_mutexattr_t mutexatr;
+    pthread_mutexattr_t mutexatr;   // 互斥锁属性对象
     pthread_mutexattr_init(&mutexatr);
-    pthread_mutexattr_settype(&mutexatr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutexattr_settype(&mutexatr, PTHREAD_MUTEX_RECURSIVE);   //递归锁
 
     MUTEX_INIT(&mutex, &mutexatr);
   }
@@ -50,7 +50,7 @@ public:
   virtual ~MemPool() { MUTEX_DESTROY(&mutex); }
 
   /**
-   * init memory pool, the major job is to alloc memory for memory pool
+   * 分配内存资源，实现初始化
    * @param pool_num, memory pool's number
    * @param item_num_per_pool, how many items per pool.
    * @return
@@ -113,7 +113,7 @@ public:
   /**
    * init memory pool, the major job is to alloc memory for memory pool
    * @param pool_num, memory pool's number
-   * @param item_num_per_pool, how many items per pool.
+   * @param item_num_per_pool how many items per pool.
    * @return 0 for success and others failure
    */
   int init(bool dynamic = true, int pool_num = DEFAULT_POOL_NUM, int item_num_per_pool = DEFAULT_ITEM_NUM_PER_POOL);
@@ -148,6 +148,7 @@ public:
 
   int get_item_num_per_pool() const { return item_num_per_pool; }
 
+// 保证期间没有新的
   int get_used_num()
   {
     MUTEX_LOCK(&this->mutex);
@@ -226,6 +227,7 @@ int MemPoolSimple<T>::extend()
   }
 
   MUTEX_LOCK(&this->mutex);
+  // Frame* pool = new Frame[number]  申请number个Frame
   T *pool = new T[item_num_per_pool];
   if (pool == nullptr) {
     MUTEX_UNLOCK(&this->mutex);

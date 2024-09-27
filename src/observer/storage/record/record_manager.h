@@ -30,11 +30,11 @@ class Trx;
 class Table;
 
 /**
- * @brief 这里负责管理在一个文件上表记录(行)的组织/管理
+ * @brief 组织记录 一行数据 在文件中如何存放
  * @defgroup RecordManager
  *
  * @details 表记录管理的内容包括如何在文件上存放、读取、检索。也就是记录的增删改查。
- * 这里的文件都会被拆分成页面，每个页面都有一样的大小。更详细的信息可以参考BufferPool。
+ * 这里的 文 件都会被拆分成 页面 ，每个页面都有一样的大小。更详细的信息可以参考BufferPool。
  * 按照BufferPool的设计，第一个页面用来存放BufferPool本身的元数据，比如当前文件有多少页面、已经分配了多少页面、
  * 每个页面的分配状态等。所以第一个页面对RecordManager来说没有作用。RecordManager 本身没有再单独拿一个页面
  * 来存放元数据，每一个页面都存放了一个页面头信息，也就是每个页面都有 RecordManager 的元数据信息，可以参考
@@ -65,6 +65,7 @@ class Table;
  */
 struct PageHeader
 {
+  // fixed length
   int32_t record_num;        ///< 当前页面记录的个数
   int32_t column_num;        ///< 当前页面记录所包含的列数
   int32_t record_real_size;  ///< 每条记录的实际大小
@@ -92,6 +93,7 @@ public:
    * @param record_page_handler 负责某个页面上记录增删改查的对象
    * @param start_slot_num      从哪个记录开始扫描，默认是0
    */
+  // RecordPageHandler 负责处理一个页面中各种操作，比如插入记录、删除记录或者查找记录
   void init(RecordPageHandler *record_page_handler, SlotNum start_slot_num = 0);
 
   /**
@@ -211,7 +213,7 @@ public:
   virtual RC get_record(const RID &rid, Record &record) { return RC::UNIMPLEMENTED; }
 
   /**
-   * @brief 获取整个页面中指定列的所有记录。
+   * @brief 获取整个页面中 *指定列* 的所有记录。
    *
    * @param chunk 由 chunk.column(i).col_id() 指定列。
    * 只需由 PaxRecordPageHandler 实现。
@@ -245,10 +247,11 @@ protected:
   }
 
   /**
-   * @brief 获取指定槽位的记录数据
+   * @brief 获取指定槽位的记录数据，通常一个槽位用于存储一个记录
    *
    * @param 指定的记录槽位
    */
+  // slot_num != RId
   char *get_record_data(SlotNum slot_num)
   {
     return frame_->data() + page_header_->data_offset + (page_header_->record_size * slot_num);
@@ -349,6 +352,8 @@ private:
   // get the field length by `column id`, all columns are fixed length.
   int get_field_len(int col_id);
 };
+
+
 /**
  * @brief 管理整个文件中记录的增删改查
  * @ingroup RecordManager

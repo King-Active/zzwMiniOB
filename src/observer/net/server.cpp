@@ -44,6 +44,7 @@ See the Mulan PSL v2 for more details. */
 
 using namespace common;
 
+// 构造函数
 ServerParam::ServerParam()
 {
   listen_addr        = INADDR_ANY;
@@ -53,16 +54,17 @@ ServerParam::ServerParam()
 
 NetServer::NetServer(const ServerParam &input_server_param) : Server(input_server_param) {}
 
-NetServer::~NetServer()
+NetServer::~NetServer()  //如果服务器处于开启状态，则started_ -> false
 {
-  if (started_) {
+  if (started_) {  
     shutdown();
   }
 }
 
-int NetServer::set_non_block(int fd)
+//非阻塞模式：允许服务器同时处理多个客户端连接，而不会因为等待某个操作完成而阻塞整个线程或进程。
+int NetServer::set_non_block(int fd)    
 {
-  int flags = fcntl(fd, F_GETFL);
+  int flags = fcntl(fd, F_GETFL);  // 获取当前的文件描述符标志
   if (flags == -1) {
     LOG_INFO("Failed to get flags of fd :%d. ", fd);
     return -1;
@@ -76,6 +78,7 @@ int NetServer::set_non_block(int fd)
   return 0;
 }
 
+// 回调函数
 void NetServer::accept(int fd)
 {
   struct sockaddr_in addr;
@@ -83,6 +86,7 @@ void NetServer::accept(int fd)
 
   int ret = 0;
 
+  // 系统调用，从监听套接字fd接受一个新的连接。如果成功，accept会返回一个新的文件描述符client_fd，该描述符代表与客户端的连接。
   int client_fd = ::accept(fd, (struct sockaddr *)&addr, &addrlen);
   if (client_fd < 0) {
     LOG_ERROR("Failed to accept client's connection, %s", strerror(errno));
@@ -90,15 +94,18 @@ void NetServer::accept(int fd)
   }
 
   char ip_addr[24];
+  // 客户端ip(sockaddr_in.addr.sin_addr) -> 点分十进制的字符串 -> ip_addr
   if (inet_ntop(AF_INET, &addr.sin_addr, ip_addr, sizeof(ip_addr)) == nullptr) {
     LOG_ERROR("Failed to get ip address of client, %s", strerror(errno));
     ::close(client_fd);
     return;
   }
   stringstream address;
+  // 客户端的IP地址和端口号
   address << ip_addr << ":" << addr.sin_port;
   string addr_str = address.str();
 
+  // 非阻塞模式
   ret = set_non_block(client_fd);
   if (ret < 0) {
     LOG_ERROR("Failed to set socket of %s as non blocking, %s", addr_str.c_str(), strerror(errno));
@@ -116,7 +123,8 @@ void NetServer::accept(int fd)
       return;
     }
   }
-
+ 
+  // *** 工厂模式 创建合适的 Communicator 对象
   Communicator *communicator = communicator_factory_.create(server_param_.protocol);
 
   RC rc = communicator->init(client_fd, make_unique<Session>(Session::default_session()), addr_str);
@@ -255,6 +263,7 @@ int NetServer::serve()
     return -1;
   }
 
+  // 启动网络监听
   int retval = start();
   if (retval == -1) {
     LOG_PANIC("Failed to start network");
@@ -267,8 +276,9 @@ int NetServer::serve()
     poll_fd.events  = POLLIN;
     poll_fd.revents = 0;
 
+//  循环监听
     while (started_) {
-      int ret = poll(&poll_fd, 1, 500);
+      int ret = poll(&poll_fd, 1, 500); // 等待监听套接字上有事件发生
       if (ret < 0) {
         LOG_WARN("[listen socket] poll error. fd = %d, ret = %d, error=%s", poll_fd.fd, ret, strerror(errno));
         break;
@@ -286,6 +296,7 @@ int NetServer::serve()
     }
   }
 
+// 退出监听循环
   thread_handler_->stop();
   thread_handler_->await_stop();
   delete thread_handler_;

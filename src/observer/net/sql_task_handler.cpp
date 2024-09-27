@@ -34,7 +34,7 @@ RC SqlTaskHandler::handle_event(Communicator *communicator)
 
   SQLStageEvent sql_event(event, event->query());
 
-  rc = handle_sql(&sql_event);
+  rc = handle_sql(&sql_event);    // 进行执行流程
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to handle sql. rc=%s", strrc(rc));
     event->sql_result()->set_return_code(rc);
@@ -63,12 +63,14 @@ RC SqlTaskHandler::handle_sql(SQLStageEvent *sql_event)
     return rc;
   }
 
+// sql -> 语法解析树
   rc = parse_stage_.handle_request(sql_event);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do parse. rc=%s", strrc(rc));
     return rc;
   }
 
+  // 将判断模块解析出来的语法树，进一步细化后转换成真实的对象
   rc = resolve_stage_.handle_request(sql_event);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do resolve. rc=%s", strrc(rc));

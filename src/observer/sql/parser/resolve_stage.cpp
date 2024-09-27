@@ -34,7 +34,7 @@ RC ResolveStage::handle_request(SQLStageEvent *sql_event)
   SessionEvent *session_event = sql_event->session_event();
   SqlResult    *sql_result    = session_event->sql_result();
 
-  Db *db = session_event->session()->get_current_db();
+  Db *db = session_event->session()->get_current_db();    // 当前所在数据库
   if (nullptr == db) {
     LOG_ERROR("cannot find current db");
     rc = RC::SCHEMA_DB_NOT_EXIST;
@@ -43,10 +43,13 @@ RC ResolveStage::handle_request(SQLStageEvent *sql_event)
     return rc;
   }
 
-  ParsedSqlNode *sql_node = sql_event->sql_node().get();
-  Stmt          *stmt     = nullptr;
+  ParsedSqlNode *sql_node = sql_event->sql_node().get();  // 上一阶段的语法解析结果
+  Stmt          *stmt     = nullptr;  // SQL解析后的语句，再进一步解析成Stmt，真实细化为具体对象
+                                      // E.g.  table_name，解析成具体的 Table对象，attr/field name解析成Field对象
 
+//  ！！！！！！Review ！！！！！！
   rc = Stmt::create_stmt(db, *sql_node, stmt);
+
   if (rc != RC::SUCCESS && rc != RC::UNIMPLEMENTED) {
     LOG_WARN("failed to create stmt. rc=%d:%s", rc, strrc(rc));
     sql_result->set_return_code(rc);

@@ -197,7 +197,7 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
     return write_state(event, need_disconnect);
   }
 
-  const TupleSchema &schema   = sql_result->tuple_schema();
+  const TupleSchema &schema   = sql_result->tuple_schema();   // 表头信息
   const int          cell_num = schema.cell_num();
 
   for (int i = 0; i < cell_num; i++) {
@@ -254,7 +254,7 @@ RC PlainCommunicator::write_result_internal(SessionEvent *event, bool &need_disc
     // 可能是insert/delete等操作，不直接返回给客户端数据，这里把处理结果返回给客户端
     RC rc_close = sql_result->close();
     if (rc == RC::SUCCESS) {
-      rc = rc_close;
+      rc = rc_close;  // SUCCESS
     }
     sql_result->set_return_code(rc);
     return write_state(event, need_disconnect);

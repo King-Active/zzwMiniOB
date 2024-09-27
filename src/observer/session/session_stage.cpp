@@ -31,10 +31,10 @@ using namespace common;
 // Destructor
 SessionStage::~SessionStage() {}
 
-// TODO remove me
+// TODO remove me 待删？？？
 void SessionStage::handle_request(SessionEvent *sev)
 {
-  string sql = sev->query();
+  string sql = sev->query();  // SQL语句
   if (common::is_blank(sql.c_str())) {
     return;
   }
@@ -57,7 +57,7 @@ void SessionStage::handle_request(SessionEvent *sev)
 
 void SessionStage::handle_request2(SessionEvent *event)
 {
-  const string &sql = event->query();
+  const string &sql = event->query(); //拿到sql
   if (common::is_blank(sql.c_str())) {
     return;
   }
@@ -77,8 +77,10 @@ void SessionStage::handle_request2(SessionEvent *event)
  * execute_stage中的执行，通过explain语句看需要哪些operator，然后找对应的operator来
  * 调试或者看代码执行过程即可。
  */
+// sql_event
 RC SessionStage::handle_sql(SQLStageEvent *sql_event)
 {
+  // SQLStageEvent 在各个 stage 传递流转
   RC rc = query_cache_stage_.handle_request(sql_event);
   if (OB_FAIL(rc)) {
     LOG_TRACE("failed to do query cache. rc=%s", strrc(rc));

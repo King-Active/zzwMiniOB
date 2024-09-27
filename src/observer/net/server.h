@@ -52,10 +52,10 @@ private:
   /**
    * @brief 接收到新的连接时，调用此函数创建Communicator对象
    * @details 此函数作为libevent中监听套接字对应的回调函数
-   * @param fd libevent回调函数传入的参数，即监听套接字
+   * @param fd libevent回调函数传入的参数，即监听套接字; 标识哪个监听套接字接收到了连接请求
    * @param ev 本次触发的事件，通常是EV_READ
    */
-  void accept(int fd);
+  void accept(int fd);    
 
 private:
   /**
@@ -78,11 +78,11 @@ private:
   int start_unix_socket_server();
 
 private:
-  volatile bool started_ = false;
+  volatile bool started_ = false; // 多线程变量可见性
 
-  int server_socket_ = -1;  ///< 监听套接字，是一个描述符
+  int server_socket_ = -1;  ///< 监听套接字，是一个描述符fd
 
-  CommunicatorFactory communicator_factory_;  ///< 通过这个对象创建新的Communicator对象
+  CommunicatorFactory communicator_factory_;  ///< 通过这个对象创建新的Communicator对象 <工厂模式>
   ThreadHandler      *thread_handler_ = nullptr;
 };
 
