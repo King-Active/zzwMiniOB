@@ -310,6 +310,7 @@ RC DiskBufferPool::open_file(const char *file_name)
   return RC::SUCCESS;
 }
 
+// 释放内存
 RC DiskBufferPool::close_file()
 {
   RC rc = RC::SUCCESS;
@@ -346,6 +347,12 @@ RC DiskBufferPool::close_file()
   file_desc_ = -1;
 
   bp_manager_.close_file(file_name_.c_str());
+  return RC::SUCCESS;
+}
+
+RC DiskBufferPool:: remove_file_index(){
+  // 调用之前删除数据文件时定义的删除方法
+  bp_manager_.remove_file(file_name_.c_str());
   return RC::SUCCESS;
 }
 
@@ -607,6 +614,7 @@ RC DiskBufferPool::flush_page_internal(Frame &frame)
   // this对应某个文件
   // frame.page_num()对应文件的页面
   // frame.page() 为待写回的文件内容
+  // 先放到 double_write_buffer
   rc = dblwr_manager_.add_page(this, frame.page_num(), frame.page());
   if (OB_FAIL(rc)) {
     return rc;
@@ -798,6 +806,7 @@ RC DiskBufferPool::check_page_num(PageNum page_num)
 RC DiskBufferPool::load_page(PageNum page_num, Frame *frame)
 {
   Page &page = frame->page();
+  // 如果从双重写入缓冲区成功读取到页面（OB_SUCC(rc)为真），则直接返回成功
   RC rc = dblwr_manager_.read_page(this, page_num, page);
   if (OB_SUCC(rc)) {
     return rc;
@@ -805,6 +814,8 @@ RC DiskBufferPool::load_page(PageNum page_num, Frame *frame)
 
   scoped_lock lock_guard(wr_lock_);
   int64_t          offset = ((int64_t)page_num) * BP_PAGE_SIZE;
+
+  // 将file_desc_的文件位置从文件的开头，当前位置
   if (lseek(file_desc_, offset, SEEK_SET) == -1) {
     LOG_ERROR("Failed to load page %s:%d, due to failed to lseek:%s.", file_name_.c_str(), page_num, strerror(errno));
 
@@ -940,7 +951,9 @@ RC BufferPoolManager::open_file(LogHandler &log_handler, const char *_file_name,
   return RC::SUCCESS;
 }
 
+// 释放bufferpool
 // 将此文件从bufferpool抹去（已确保文件不脏）
+// 注意，与removefile不同，此处仅抹去内存，不抹去磁盘
 RC BufferPoolManager::close_file(const char *_file_name)
 {
   string file_name(_file_name);
@@ -962,6 +975,16 @@ RC BufferPoolManager::close_file(const char *_file_name)
   lock_.unlock();
 
   delete bp;
+  return RC::SUCCESS;
+}
+
+RC BufferPoolManager::remove_file(const char *file_name){
+  //若文件在内存中，先从内存抹去
+  close_file(file_name);
+  if (::remove(file_name) != 0) { // 尝试删除文件
+    LOG_ERROR("Fail to delete file, filename = %s, errmsg = %s",file_name,strerror(errno));
+    return RC::INTERNAL;
+  }
   return RC::SUCCESS;
 }
 

@@ -975,6 +975,16 @@ RC BplusTreeHandler::close()
   return RC::SUCCESS;
 }
 
+RC BplusTreeHandler::remove()
+{
+  if (disk_buffer_pool_ != nullptr) {
+    disk_buffer_pool_->remove_file_index();
+  }
+
+  disk_buffer_pool_ = nullptr;
+  return RC::SUCCESS;
+}
+
 RC BplusTreeHandler::print_leaf(Frame *frame)
 {
   BplusTreeMiniTransaction mtr(*this);

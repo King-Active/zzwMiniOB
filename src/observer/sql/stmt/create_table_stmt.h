@@ -30,18 +30,27 @@ class CreateTableStmt : public Stmt
 {
 public:
   CreateTableStmt(
+    /**
+     *  table_name 要创建的表名
+     *  attr_infos 属性信息集合
+     *  storage_format 存储格式
+     */
       const std::string &table_name, const std::vector<AttrInfoSqlNode> &attr_infos, StorageFormat storage_format)
       : table_name_(table_name), attr_infos_(attr_infos), storage_format_(storage_format)
   {}
   virtual ~CreateTableStmt() = default;
 
+  // 获得此语句的类型
   StmtType type() const override { return StmtType::CREATE_TABLE; }
 
   const std::string                  &table_name() const { return table_name_; }
   const std::vector<AttrInfoSqlNode> &attr_infos() const { return attr_infos_; }
   const StorageFormat                 storage_format() const { return storage_format_; }
 
+  // 
   static RC            create(Db *db, const CreateTableSqlNode &create_table, Stmt *&stmt);
+  
+  // 根据传入的字符串 format_str 来确定并返回一个 StorageFormat 枚举类型的值
   static StorageFormat get_storage_format(const char *format_str);
 
 private:

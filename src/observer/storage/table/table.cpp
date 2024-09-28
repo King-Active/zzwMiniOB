@@ -108,6 +108,7 @@ RC Table::create(Db *db, int32_t table_id, const char *path, const char *name, c
   db_       = db;
   base_dir_ = base_dir;
 
+  // 数据文件创建
   string             data_file = table_data_file(base_dir, name);
   BufferPoolManager &bpm       = db->buffer_pool_manager();
   rc                           = bpm.create_file(data_file.c_str());
@@ -116,6 +117,7 @@ RC Table::create(Db *db, int32_t table_id, const char *path, const char *name, c
     return rc;
   }
 
+  // record_manager 创建
   rc = init_record_handler(base_dir);
   if (rc != RC::SUCCESS) {
     LOG_ERROR("Failed to create table %s due to init record handler failed.", data_file.c_str());
@@ -126,6 +128,39 @@ RC Table::create(Db *db, int32_t table_id, const char *path, const char *name, c
   LOG_INFO("Successfully create table %s:%s", base_dir, name);
   return rc;
 }
+
+RC Table::drop(const char* path){
+  
+  // 删除元数据文件
+  // "miniob/db/sys/U.table"
+  if (::remove(path) != 0) { // 尝试删除文件
+    LOG_ERROR("Fail to delete table, filename = %s, errmsg = %s",path,strerror(errno));
+    return RC::INTERNAL;
+  }
+
+  // 删除数据文件
+  // base_dir_ 和 table_meta_ 均在table的属性中
+  string            data_file  = table_data_file(base_dir_.c_str(), table_meta_.name()); 
+  BufferPoolManager &bpm       = db_->buffer_pool_manager();
+  RC rc                        = bpm.remove_file(data_file.c_str());
+  data_buffer_pool_ = nullptr;
+
+  // 删除索引文件 idx 通过new申请，指向实际的索引文件
+  for(auto& idx: indexes_){
+    idx->destory();
+    delete idx;
+    idx = nullptr; 
+  }
+
+  // record_handler_
+  if(record_handler_ != nullptr){
+    delete record_handler_;
+    record_handler_ = nullptr;
+  }
+
+  return rc;
+}
+
 
 RC Table::open(Db *db, const char *meta_file, const char *base_dir)
 {
@@ -167,6 +202,7 @@ RC Table::open(Db *db, const char *meta_file, const char *base_dir)
       return RC::INTERNAL;
     }
 
+  // indexes_ 内部的 index 指向实际的索引文件
     BplusTreeIndex *index      = new BplusTreeIndex();
     string          index_file = table_index_file(base_dir, name(), index_meta->name());
 

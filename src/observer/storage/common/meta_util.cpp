@@ -23,6 +23,7 @@ string db_meta_file(const char *base_dir, const char *db_name)
   return db_dir / (string(db_name) + DB_META_SUFFIX);
 }
 
+// xxx.table 对应元数据文件
 string table_meta_file(const char *base_dir, const char *table_name)
 {
   return filesystem::path(base_dir) / (string(table_name) + TABLE_META_SUFFIX);

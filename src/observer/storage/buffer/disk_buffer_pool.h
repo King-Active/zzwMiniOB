@@ -204,6 +204,7 @@ public:
    * 关闭分页文件
    */
   RC close_file();
+  RC remove_file_index();
 
   /**
    * 根据文件ID和页号获取指定页面到缓冲区，返回页面句柄指针。
@@ -332,7 +333,7 @@ public:
   RC create_file(const char *file_name);
   RC open_file(LogHandler &log_handler, const char *file_name, DiskBufferPool *&bp);
   RC close_file(const char *file_name);
-
+  RC remove_file(const char *file_name);
   RC flush_page(Frame &frame);
 
   BPFrameManager    &get_frame_manager() { return frame_manager_; }

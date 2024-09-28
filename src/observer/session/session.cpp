@@ -47,6 +47,8 @@ Db *Session::get_current_db() const { return db_; }
 void Session::set_current_db(const string &dbname)
 {
   DefaultHandler &handler = *GCTX.handler_;
+  
+  // 根据数据库名找到 ** 真正的数据库对象 **
   Db             *db      = handler.find_db(dbname.c_str());
   if (db == nullptr) {
     LOG_WARN("no such database: %s", dbname.c_str());
